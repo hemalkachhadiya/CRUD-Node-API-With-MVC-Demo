@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        #chat-container {
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 15px;
+            height: 400px;
+            overflow-y: auto;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .sent {
+            background-color: #dcf8c6;
+            text-align: right;
+            margin-left: 50px;
+        }
+        .received {
+            background-color: #f1f0f0;
+            margin-right: 50px;
+        }
+        .system {
+            text-align: center;
+            font-style: italic;
+            color: #777;
+        }
+        #typing-indicator {
+            font-style: italic;
+            color: #777;
+            height: 20px;
+        }
+        #message-form {
+            display: flex;
+        }
+        #message-input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            margin-right: 10px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <h1>Chat Demo</h1>
+    
+    <div id="room-control">
+        <input type="text" id="room-input" placeholder="Enter room ID" value="demo-room">
+        <button id="join-btn">Join Room</button>
+        <button id="leave-btn">Leave Room</button>
+    </div>
+    
+    <div id="chat-container"></div>
+    <div id="typing-indicator"></div>
+    
+    <form id="message-form">
+        <input type="text" id="message-input" placeholder="Type your message..." disabled>
+        <button type="submit" id="send-btn" disabled>Send</button>
+    </form>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        // Connect to Socket.io server
+        const socket = io();
+        
+        // DOM elements
+        const chatContainer = document.getElementById('chat-container');
+        const messageForm = document.getElementById('message-form');
+        const messageInput = document.getElementById('message-input');
+        const roomInput = document.getElementById('room-input');
+        const joinBtn = document.getElementById('join-btn');
+        const leaveBtn = document.getElementById('leave-btn');
+        const sendBtn = document.getElementById('send-btn');
+        const typingIndicator = document.getElementById('typing-indicator');
+        
+        let currentRoom = null;
+        let typingTimeout = null;
+        
+        // Add message to chat
+        const addMessage = (message, type) => {
+            const messageElement = document.createElement('div');
+            messageElement.classList.add('message', type);
+            messageElement.textContent = message;
+            chatContainer.appendChild(messageElement);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        };
+        
+        // Join room
+        joinBtn.addEventListener('click', () => {
+            const roomId = roomInput.value.trim();
+            if (!roomId) return;
+            
+            if (currentRoom) {
+                socket.emit('leave_room', currentRoom);
+            }
+            
+            currentRoom = roomId;
+            socket.emit('join_room', roomId);
+            
+            messageInput.disabled = false;
+            sendBtn.disabled = false;
+            
+            addMessage(`Joined room: ${roomId}`, 'system');
+        });
+        
+        // Leave room
+        leaveBtn.addEventListener('click', () => {
+            if (!currentRoom) return;
+            
+            socket.emit('leave_room', currentRoom);
+            addMessage(`Left room: ${currentRoom}`, 'system');
+            
+            currentRoom = null;
+            messageInput.disabled = true;
+            sendBtn.disabled = true;
+        });
+        
+        // Send message
+        messageForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            
+            const message = messageInput.value.trim();
+            if (!message || !currentRoom) return;
+            
+            socket.emit('send_message', {
+                roomId: currentRoom,
+                message: message
+            });
+            
+            messageInput.value = '';
+        });
+        
+        // Handle typing indicator
+        messageInput.addEventListener('input', () => {
+            if (!currentRoom) return;
+            
+            // Clear previous timeout
+            clearTimeout(typingTimeout);
+            
+            // Send typing indicator
+            socket.emit('typing', {
+                roomId: currentRoom,
+                isTyping: true
+            });
+            
+            // Set timeout to stop typing indicator
+            typingTimeout = setTimeout(() => {
+                socket.emit('typing', {
+                    roomId: currentRoom,
+                    isTyping: false
+                });
+            }, 1000);
+        });
+        
+        // Socket event listeners
+        socket.on('connect', () => {
+            addMessage(`Connected with ID: ${socket.id}`, 'system');
+        });
+        
+        socket.on('user_joined', (data) => {
+            addMessage(data.message, 'system');
+        });
+        
+        socket.on('user_left', (data) => {
+            addMessage(data.message, 'system');
+        });
+        
+        socket.on('receive_message', (data) => {
+            const isMyMessage = data.senderId === socket.id;
+            const messageType = isMyMessage ? 'sent' : 'received';
+            const displayMessage = isMyMessage 
+                ? `You: ${data.message}` 
+                : `${data.senderId.substring(0, 6)}: ${data.message}`;
+            
+            addMessage(displayMessage, messageType);
+        });
+        
+        socket.on('user_typing', (data) => {
+            if (data.isTyping) {
+                typingIndicator.textContent = `${data.userId.substring(0, 6)} is typing...`;
+            } else {
+                typingIndicator.textContent = '';
+            }
+        });
+    </script>
+</body>
+</html>
